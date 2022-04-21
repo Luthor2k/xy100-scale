@@ -1,12 +1,23 @@
 import serial, io, sys, struct
 import tkinter as tk
 from tkinter import ttk
+import threading
+import logging
+import time
 
 def getWeight(comPort):
     with serial.Serial(comPort,9600,timeout=1) as ser:
         weightReading = ser.read_until(b'\x67')   # read until 'g' appears
         weightReading = float(weightReading.strip(b'\x02\x2b\x20\x67')) #strip SoT, '+', space and 'g'
         return weightReading
+
+def thread_function(name):
+
+    logging.info("Thread %s: starting", name)
+
+    time.sleep(2)
+
+    logging.info("Thread %s: finishing", name)
 
 class App(ttk.Frame):
     def __init__(self, parent):
@@ -92,6 +103,26 @@ class App(ttk.Frame):
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("Weightometer")
+
+    format = "%(asctime)s: %(message)s"
+
+    logging.basicConfig(format=format, level=logging.DEBUG,
+
+                        datefmt="%H:%M:%S")        
+
+    logging.info("Main    : before creating thread")
+
+    x = threading.Thread(target=thread_function, args=(1,))
+
+    logging.info("Main    : before running thread")
+
+    x.start()
+
+    logging.info("Main    : wait for the thread to finish")
+
+    # x.join()
+
+    logging.info("Main    : all done")
 
     # Simply set the theme
     root.tk.call("source", "Sun-Valley-ttk-theme\sun-valley.tcl")
