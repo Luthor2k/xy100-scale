@@ -6,39 +6,39 @@ from threading import Thread
 import logging
 import time
 
-def getWeight(comPort):
-    logging.info("open port")
-    with serial.Serial(comPort,9600,timeout=1) as ser:
-        try_capture = True
-        while try_capture == True:
-            logging.info("readuntil")
-            weightReading = ser.read_until(b'\x67')   # read until 'g' appears
-            print(f"raw reading: {weightReading}")
-            weightReading = weightReading.strip(b'\n\r\x02\x2b\x20\x67')
-            #weightReading = weightReading.strip(b'\x02\x2b\x20\x67')
-            print(f"stripped reading: {weightReading}")
-            try:
-                weightReading = float(weightReading) #strip SoT, '+', space and 'g'
-            except:
-                print("bad!")
-                ser.reset_input_buffer()
-                time.sleep(0.25)
-                try_capture = True
-            else:
-                try_capture = False
-        logging.info("return")
-        return weightReading
-
 class AsyncScale(Thread):
     def __init__(self):
+        self.comPort = 'COM12'
         super().__init__()
-        logging.info("Thread scale comm, starting")
-        self.reading = None
+        logging.info("scale comm thread starting")
+        self.weightReading = None
+        self.goodReading = float(0)
+        self.ser = serial.Serial(self.comPort,9600,timeout=1)
+        logging.info("port open")
 
     def run(self):
-        scale_value = str(getWeight('COM12')) + "g"
-        self.reading = scale_value
+        while True:
+            self.try_capture = True
+            while self.try_capture == True:
+                logging.info("readuntil")
+                self.weightReading = self.ser.read_until(b'\x67')   # read until 'g' appears
+                logging.info(f"raw reading: {self.weightReading}")
+                self.weightReading = self.weightReading.strip(b'\n\r\x02\x2b\x20\x67')
+                #weightReading = weightReading.strip(b'\x02\x2b\x20\x67')
+                logging.info(f"stripped reading: {self.weightReading}")
+                try:
+                    self.weightReading = float(self.weightReading) #strip SoT, '+', space and 'g'
+                except:
+                    logging.info("bad reading!")
+                    self.ser.reset_input_buffer()
+                    time.sleep(0.25)
+                    self.try_capture = True
+                else:
+                    self.try_capture = False
+                    self.goodReading = self.weightReading
         logging.info("Thread scale comm, finishing")
+
+
 
 class App(ttk.Frame):
     def __init__(self, parent):
@@ -62,6 +62,7 @@ class App(ttk.Frame):
 
         self.formatted_weight = tk.StringVar()
         self.formatted_weight.set("0.0g")
+        self.raw_weight = tk.IntVar()
 
 
         # Create widgets :)
@@ -69,31 +70,43 @@ class App(ttk.Frame):
 
     def setup_widgets(self):
 
-        # Create a Frame for input widgets
+        # ---------- title frame ----------
         self.widgets_frame = ttk.Frame(self, padding=(0, 0, 0, 10))
         self.widgets_frame.grid(
-            row=0, column=1, padx=10, pady=(30, 10), sticky="nsew", rowspan=3
+            row=0, column=0, padx=10, pady=(30, 10), sticky="nsew", rowspan=1
         )
         self.widgets_frame.columnconfigure(index=0, weight=1)
 
-        # Label
+        # title
         self.label = ttk.Label(
             self.widgets_frame,
             text="~Weightometer~",
             justify="center",
             font=("-size", 15, "-weight", "bold"),
         )
-        self.label.grid(row=0, column=0, pady=10, columnspan=2)
+        self.label.grid(row=0, column=0, pady=10, columnspan=1)
 
-        # Entry - weight reading
-        self.reading = ttk.Entry(self.widgets_frame, textvariable=self.formatted_weight)
-        self.reading.grid(row=1, column=0, padx=5, pady=(10, 10), sticky="ew")
-
-        # Progressbar
-        self.progress = ttk.Progressbar(
-            self.widgets_frame, value=0, variable=self.var_5, mode="determinate"
+        # ---------- labelframe for weight reading ----------
+        self.weight_frame = ttk.LabelFrame(
+            self, padding=(0,0,0,10), 
+            text="weight on scale:"
         )
-        self.progress.grid(row=2, column=0, padx=(10, 20), pady=(20, 20), sticky="ew")
+        self.weight_frame.grid(
+            row=1, column=0, padx=10, pady=10, sticky="nsew", rowspan=1
+        )
+
+        # weight reading
+        self.reading = ttk.Label(
+            self.weight_frame,
+            textvariable=self.formatted_weight)
+        self.reading.grid(row=0, column=0, padx=0, pady=0, columnspan=1)
+
+        # scale capacity bar
+        self.progress = ttk.Progressbar(
+            self.weight_frame, value=0, variable=self.raw_weight, mode="determinate"
+        )
+        self.progress.grid(row=1, column=0, padx=0, pady=0, sticky="ew")
+
 
         # OptionMenu - Units of measure g / oz / part count
         self.optionmenu = ttk.OptionMenu(
@@ -109,7 +122,7 @@ class App(ttk.Frame):
         self.weigh_button = ttk.Button(
             self.widgets_frame, text="weigh part", style="Accent.TButton"
         )
-        self.weigh_button['command'] = self.handle_scale
+        #self.weigh_button['command'] = self.handle_scale
         self.weigh_button.grid(row=5, column=0, padx=5, pady=10, sticky="nsew")
 
         # Switch - measure continuously or not
@@ -124,21 +137,6 @@ class App(ttk.Frame):
         self.sizegrip = ttk.Sizegrip(self)
         self.sizegrip.grid(row=100, column=100, padx=(0, 5), pady=(0, 5))
 
-    def handle_scale(self):
-        #self.weigh_button['state'] = ttk.DISABLED
-        self.formatted_weight.set("") 
-        scale_thread = AsyncScale()
-        scale_thread.start()
-
-        self.monitor(scale_thread)
-
-    def monitor(self, thread):
-        if thread.is_alive():
-            # check the thread every 100ms
-            self.after(100, lambda: self.monitor(thread))
-        else:
-            self.formatted_weight.set(thread.reading)
-            #self.weigh_button['state'] = ttk.NORMAL
 
 if __name__ == "__main__":
     root = tk.Tk()
@@ -146,7 +144,7 @@ if __name__ == "__main__":
 
     format = '%(asctime)s.%(msecs)03d: %(message)s'
 
-    logging.basicConfig(format=format, level=logging.DEBUG, datefmt='%Y-%m-%d,%H:%M:%S') 
+    logging.basicConfig(format=format, level=logging.ERROR, datefmt='%Y-%m-%d,%H:%M:%S') 
 
     logging.info("Main")
 
@@ -168,12 +166,26 @@ if __name__ == "__main__":
 
     #print(f"test: the weight on the scale is: {weight}g")
 
+    scale_thread = AsyncScale()
+    scale_thread.daemon = True  # This thread dies when main thread (only non-daemon thread) exits
+    scale_thread.start()
+
     def updateWeight():
-        scale_value = str(getWeight('COM12')) + "g"
-        app.formatted_weight.set(scale_value)
+        app.formatted_weight.set(str(scale_thread.goodReading) + " g")
+        app.raw_weight.set(int(scale_thread.goodReading))
         app.after(100, updateWeight)
 
     updateWeight()
+
+    with open("testLog.csv", "a") as myfile:
+        myfile.write("time,scaleWeight,scaleUnit" + "\n")
+
+    def logData():
+        with open("testLog.csv", "a") as myfile:
+            myfile.write(str(time.time()) + "," + str(scale_thread.goodReading) + "," + "g" + "\n")
+        app.after(1000, logData)
+
+    logData()
 
     root.mainloop()
 
